@@ -1201,4 +1201,25 @@ class HasManyThroughAssociationsTest < ActiveRecord::TestCase
   ensure
     TenantMembership.current_member = nil
   end
+
+  def test_unsaved_records_can_access_through_associations
+    books = [Book.new]
+    subscriber = Subscriber.new
+    subscriber.subscriptions = [Subscription.new(books: books)]
+
+    assert_equal subscriber.books, books
+  end
+
+  def test_unsaved_returns_nil_if_through_association_not_loaded
+    assert_equal Subscriber.new.books, []
+  end
+
+  def test_unsaved_returns_nil_if_through_association_loaded_as_nil
+    assert_equal Subscriber.new(subscriptions: nil).books, []
+  end
+
+  def test_unsaved_returns_nil_if_through_association_has_no_target
+    assert_equal Subscriber.new(subscriptions: Subscription.new).books, []
+  end
+
 end

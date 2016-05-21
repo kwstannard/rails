@@ -82,9 +82,33 @@ module ActiveRecord
           # If there's nothing in the database and @target has no new records
           # we are certain the current target is an empty array. This is a
           # documented side-effect of the method that may avoid an extra SELECT.
-          @target ||= [] and loaded! if count == 0
+          @target ||= null_target and loaded! if count == 0
 
           [association_scope.limit_value, count].compact.min
+        end
+
+
+        def null_target
+          []
+        end
+
+
+        # Returns whether a counter cache should be used for this association.
+        #
+        # The counter_cache option must be given on either the owner or inverse
+        # association, and the column must be present on the owner.
+        def has_cached_counter?(reflection = reflection())
+          if reflection.options[:counter_cache] || (inverse = inverse_which_updates_counter_cache(reflection)) && inverse.options[:counter_cache]
+            owner.attribute_present?(cached_counter_attribute_name(reflection))
+          end
+        end
+
+        def cached_counter_attribute_name(reflection = reflection())
+          if reflection.options[:counter_cache]
+            reflection.options[:counter_cache].to_s
+          else
+            "#{reflection.name}_count"
+          end
         end
 
         def update_counter(difference, reflection = reflection())
