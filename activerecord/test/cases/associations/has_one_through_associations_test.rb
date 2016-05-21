@@ -377,4 +377,25 @@ class HasOneThroughAssociationsTest < ActiveRecord::TestCase
   ensure
     CustomerCarrier.current_customer = nil
   end
+
+  def test_unsaved_records_can_access_through_associations
+    club = Club.new
+    member = Member.new
+    member.membership = Membership.new(club: club)
+
+    assert_equal member.club, club
+  end
+
+  def test_unsaved_returns_nil_if_through_association_not_loaded
+    assert_nil Member.new.club
+  end
+
+  def test_unsaved_returns_nil_if_through_association_loaded_as_nil
+    assert_nil Member.new(membership: nil).club
+  end
+
+  def test_unsaved_returns_nil_if_through_association_has_no_target
+    assert_nil Member.new(membership: Membership.new).club
+  end
+
 end

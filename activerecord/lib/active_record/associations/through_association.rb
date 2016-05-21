@@ -5,6 +5,16 @@ module ActiveRecord
 
       delegate :source_reflection, :through_reflection, :to => :reflection
 
+        def load_target
+          @target = through_association.target.try(source_reflection.name) || null_target if through_association.loaded?
+          @target ||= find_target if (@stale_state && stale_target?) || find_target?
+
+          loaded! unless loaded?
+          target
+        rescue ActiveRecord::RecordNotFound
+          reset
+        end
+
       protected
 
         # We merge in these scopes for two reasons:
@@ -23,6 +33,10 @@ module ActiveRecord
         end
 
       private
+
+        def through_association
+          @through_association ||= owner.association(through_reflection.name)
+        end
 
         # Construct attributes for :through pointing to owner and associate. This is used by the
         # methods which create and delete records on the association.

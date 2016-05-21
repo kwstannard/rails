@@ -21,6 +21,10 @@ module ActiveRecord
         end
       end
 
+      def null_target
+        nil
+      end
+
       def replace(record, save = true)
         raise_on_type_mismatch!(record) if record
         load_target
