@@ -2,6 +2,11 @@ module ActiveRecord
   # = Active Record Has Many Through Association
   module Associations
     class HasManyThroughAssociation < HasManyAssociation #:nodoc:
+
+    extend ActiveSupport::Autoload
+      autoload :ManyManyAssociation
+      autoload :OneManyAssociation
+
       include ThroughAssociation
 
       def initialize(owner, reflection)
@@ -52,6 +57,10 @@ module ActiveRecord
       end
 
       private
+
+        def should_delegate?
+          through_association.loaded? && !through_association.stale_target?
+        end
 
         def through_association
           @through_association ||= owner.association(through_reflection.name)

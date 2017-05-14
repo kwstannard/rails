@@ -685,7 +685,12 @@ module ActiveRecord
 
       def association_class
         if options[:through]
-          Associations::HasManyThroughAssociation
+          case active_record._reflect_on_association(options[:through])
+          when HasManyReflection, HasAndBelongsToManyReflection
+            Associations::HasManyThroughAssociation::ManyManyAssociation
+          when HasOneReflection, BelongsToReflection
+            Associations::HasManyThroughAssociation::OneManyAssociation
+          end
         else
           Associations::HasManyAssociation
         end

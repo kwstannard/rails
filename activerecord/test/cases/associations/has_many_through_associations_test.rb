@@ -1155,6 +1155,39 @@ class HasManyThroughAssociationsTest < ActiveRecord::TestCase
     assert_equal [posts(:thinking).id], person.reload.first_posts.map(&:id)
   end
 
+  def test_has_many_through_with_loaded_through_association
+    person = Person.new
+    reader = Reader.new
+    post = Post.new
+
+    reader.post = post
+    person.readers = [reader]
+
+    assert(person.posts == [post])
+  end
+
+  def test_has_many_through_with_loaded_through_association
+    person = Person.new
+    reader = Reader.new
+    post = Post.new
+
+    reader.posts = [post]
+    person.reader = reader
+
+    assert(person.posts == [post])
+  end
+
+  def test_has_many_through_with_loaded_through_association
+    person = Person.new
+    reader = Reader.new
+    post = Post.new
+
+    reader.posts = [post]
+    person.readers = [reader]
+
+    assert(person.posts == [post])
+  end
+
   def test_has_many_through_with_includes_in_through_association_scope
     assert_not_empty posts(:welcome).author_address_extra_with_address
   end
