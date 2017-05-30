@@ -1155,7 +1155,7 @@ class HasManyThroughAssociationsTest < ActiveRecord::TestCase
     assert_equal [posts(:thinking).id], person.reload.first_posts.map(&:id)
   end
 
-  def test_has_many_through_with_loaded_through_association
+  def test_has_many_through_one_many_delegation
     person = Person.new
     reader = Reader.new
     post = Post.new
@@ -1166,7 +1166,7 @@ class HasManyThroughAssociationsTest < ActiveRecord::TestCase
     assert(person.posts == [post])
   end
 
-  def test_has_many_through_with_loaded_through_association
+  def test_has_many_through_many_one_delegation
     person = Person.new
     reader = Reader.new
     post = Post.new
@@ -1177,7 +1177,7 @@ class HasManyThroughAssociationsTest < ActiveRecord::TestCase
     assert(person.posts == [post])
   end
 
-  def test_has_many_through_with_loaded_through_association
+  def test_has_many_through_many_many_delegation
     person = Person.new
     reader = Reader.new
     post = Post.new
