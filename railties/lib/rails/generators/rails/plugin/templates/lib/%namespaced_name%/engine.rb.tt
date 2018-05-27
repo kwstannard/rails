@@ -2,6 +2,7 @@
   class Engine < ::Rails::Engine
   #{mountable? ? '  isolate_namespace ' + camelized_modules : ' '}
   #{api? ? "  config.generators.api_only = true" : ' '}
+  #{separate_database? ? "  def table_name_prefix\n    ''\n  end" : ' ' }
   end
 rb
 %>

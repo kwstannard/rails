@@ -73,6 +73,12 @@ module Rails
       template "config/routes.rb" if engine?
     end
 
+    def database_yml
+      if separate_database?
+        template "config/databases/#{options[:database]}.yml", "config/database.yml"
+      end
+    end
+
     def test
       template "test/test_helper.rb"
       template "test/%namespaced_name%_test.rb"
@@ -188,6 +194,9 @@ task default: :test
       class_option :mountable,    type: :boolean, default: false,
                                   desc: "Generate mountable isolated application"
 
+      class_option :separate_database,    type: :boolean, default: false,
+                                  desc: "Generate application with a separate database"
+
       class_option :skip_gemspec, type: :boolean, default: false,
                                   desc: "Skip gemspec file"
 
@@ -213,6 +222,11 @@ task default: :test
         build(:license)
         build(:gitignore) unless options[:skip_git]
         build(:gemfile)   unless options[:skip_gemfile]
+      end
+
+      def create_active_record_files
+        return if options[:skip_active_record]
+        build(:database_yml)
       end
 
       def create_app_files
@@ -319,6 +333,10 @@ task default: :test
 
       def mountable?
         options[:mountable]
+      end
+
+      def separate_database?
+        options[:separate_database]
       end
 
       def skip_git?
