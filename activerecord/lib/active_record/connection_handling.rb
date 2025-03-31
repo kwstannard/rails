@@ -47,10 +47,10 @@ module ActiveRecord
     #
     # The exceptions AdapterNotSpecified, AdapterNotFound, and +ArgumentError+
     # may be returned on an error.
-    def establish_connection(config_or_env = nil)
+    def establish_connection(config_or_env = nil, clobber: false)
       config_or_env ||= DEFAULT_ENV.call.to_sym
       db_config = resolve_config_for_connection(config_or_env)
-      connection_handler.establish_connection(db_config, owner_name: self, role: current_role, shard: current_shard)
+      connection_handler.establish_connection(db_config, owner_name: self, role: current_role, shard: current_shard, clobber: clobber)
     end
 
     # Connects a model to the databases specified. The +database+ keyword

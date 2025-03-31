@@ -55,7 +55,27 @@ module ActiveRecord
       # It can be used as a string/array (the typical case) or a hash (when you use multiple adapters)
       mattr_accessor :structure_load_flags, instance_accessor: false
 
-      extend self
+      attr_accessor :base, :tasks
+
+      def engine
+        namespace = module_parent
+        @engine ||= if defined? namespace::Engine
+          namespace::Engine.instance
+        elsif Rails.application
+          Rails.application
+        else
+          raise 'no engine found'
+        end
+      end
+
+      def base
+        namespace = module_parent
+        @base ||= if defined? namespace::ApplicationRecord
+          base = namespace::ApplicationRecord
+        else
+          base = ActiveRecord::Base
+        end
+      end
 
       attr_writer :db_dir, :migrations_paths, :fixtures_path, :root, :env, :seed_loader
       attr_accessor :database_configuration
@@ -71,21 +91,28 @@ module ActiveRecord
       end
 
       def register_task(pattern, task)
-        @tasks ||= {}
-        @tasks[pattern] = task
+        self.tasks ||= {}
+        tasks[pattern] = task
       end
 
-      register_task(/mysql/,        "ActiveRecord::Tasks::MySQLDatabaseTasks")
-      register_task(/trilogy/,      "ActiveRecord::Tasks::MySQLDatabaseTasks")
-      register_task(/postgresql/,   "ActiveRecord::Tasks::PostgreSQLDatabaseTasks")
-      register_task(/sqlite/,       "ActiveRecord::Tasks::SQLiteDatabaseTasks")
+      # Used to generate tasks in railties/databases.rake
+      mattr_accessor :db_task_modules
+      self.db_task_modules = []
+
+      def extended(base)
+        db_task_modules << base
+        base.register_task(/mysql/,        "ActiveRecord::Tasks::MySQLDatabaseTasks")
+        base.register_task(/trilogy/,      "ActiveRecord::Tasks::MySQLDatabaseTasks")
+        base.register_task(/postgresql/,   "ActiveRecord::Tasks::PostgreSQLDatabaseTasks")
+        base.register_task(/sqlite/,       "ActiveRecord::Tasks::SQLiteDatabaseTasks")
+      end
 
       def db_dir
-        @db_dir ||= Rails.application.config.paths["db"].first
+        @db_dir ||= engine.config.paths["db"].first
       end
 
       def migrations_paths
-        @migrations_paths ||= Rails.application.paths["db/migrate"].to_a
+        @migrations_paths ||= engine.paths["db/migrate"].to_a
       end
 
       def fixtures_path
@@ -104,12 +131,8 @@ module ActiveRecord
         @env ||= Rails.env
       end
 
-      def name
-        @name ||= "primary"
-      end
-
       def seed_loader
-        @seed_loader ||= Rails.application
+        @seed_loader ||= engine
       end
 
       def create(configuration, *arguments)
@@ -129,13 +152,13 @@ module ActiveRecord
 
         each_local_configuration { |db_config| create(db_config) }
 
-        migration_class.establish_connection(db_config)
+        base.establish_connection(db_config)
       end
 
       def setup_initial_database_yaml # :nodoc:
         return {} unless defined?(Rails)
 
-        Rails.application.config.load_database_yaml
+        engine.config.load_database_yaml
       end
 
       def for_each(databases) # :nodoc:
@@ -170,7 +193,7 @@ module ActiveRecord
       def create_current(environment = env, name = nil)
         each_current_configuration(environment, name) { |db_config| create(db_config) }
 
-        migration_class.establish_connection(environment.to_sym)
+        base.establish_connection(environment.to_sym)
       end
 
       def prepare_all
@@ -241,18 +264,18 @@ module ActiveRecord
       end
 
       def migrate_all
-        db_configs = ActiveRecord::Base.configurations.configs_for(env_name: ActiveRecord::Tasks::DatabaseTasks.env)
+        db_configs = base.configurations.configs_for(env_name: env)
         db_configs.each { |db_config| initialize_database(db_config) }
 
         if db_configs.size == 1 && db_configs.first.primary?
-          ActiveRecord::Tasks::DatabaseTasks.migrate(skip_initialize: true)
+          migrate(skip_initialize: true)
         else
-          mapped_versions = ActiveRecord::Tasks::DatabaseTasks.db_configs_with_versions
+          mapped_versions = db_configs_with_versions
 
           mapped_versions.sort.each do |version, db_configs|
             db_configs.each do |db_config|
-              ActiveRecord::Tasks::DatabaseTasks.with_temporary_connection(db_config) do
-                ActiveRecord::Tasks::DatabaseTasks.migrate(version, skip_initialize: true)
+              with_temporary_connection(db_config) do
+                migrate(version, skip_initialize: true)
               end
             end
           end
@@ -288,7 +311,7 @@ module ActiveRecord
         with_temporary_pool_for_each(env: environment) do |pool|
           db_config = pool.db_config
           versions_to_run = pool.migration_context.pending_migration_versions
-          target_version = ActiveRecord::Tasks::DatabaseTasks.target_version
+          target_version = target_version
 
           versions_to_run.each do |version|
             next if target_version && target_version != version
@@ -356,7 +379,7 @@ module ActiveRecord
       def purge_current(environment = env)
         each_current_configuration(environment) { |db_config| purge(db_config) }
 
-        migration_class.establish_connection(environment.to_sym)
+        base.establish_connection(environment.to_sym)
       end
 
       def structure_dump(configuration, *arguments)
@@ -432,7 +455,7 @@ module ActiveRecord
       def dump_all
         with_temporary_pool_for_each do |pool|
           db_config = pool.db_config
-          ActiveRecord::Tasks::DatabaseTasks.dump_schema(db_config, ENV["SCHEMA_FORMAT"] || db_config.schema_format)
+          dump_schema(db_config, ENV["SCHEMA_FORMAT"] || db_config.schema_format)
         end
       end
 
@@ -466,17 +489,17 @@ module ActiveRecord
         filename = db_config.schema_dump(format)
         return unless filename
 
-        if File.dirname(filename) == ActiveRecord::Tasks::DatabaseTasks.db_dir
+        if File.dirname(filename) == db_dir
           filename
         else
-          File.join(ActiveRecord::Tasks::DatabaseTasks.db_dir, filename)
+          File.join(db_dir, filename)
         end
       end
 
       def cache_dump_filename(db_config, schema_cache_path: nil)
         schema_cache_path ||
           db_config.schema_cache_path ||
-          db_config.default_schema_cache_path(ActiveRecord::Tasks::DatabaseTasks.db_dir)
+          db_config.default_schema_cache_path(db_dir)
       end
 
       def load_schema_current(format = nil, file = nil, environment = env)
@@ -500,7 +523,7 @@ module ActiveRecord
           seed_loader.load_seed
         else
           raise "You tried to load seed data, but no seed loader is specified. Please specify seed " \
-                "loader with ActiveRecord::Tasks::DatabaseTasks.seed_loader = your_seed_loader\n" \
+                "loader with #{self}.seed_loader = your_seed_loader\n" \
                 "Seed loader should respond to load_seed method"
         end
       end
@@ -517,12 +540,12 @@ module ActiveRecord
         FileUtils.rm_f filename, verbose: false
       end
 
-      def with_temporary_pool_for_each(env: ActiveRecord::Tasks::DatabaseTasks.env, name: nil, clobber: false, &block) # :nodoc:
+      def with_temporary_pool_for_each(env: self.env, name: nil, clobber: false, &block) # :nodoc:
         if name
-          db_config = ActiveRecord::Base.configurations.configs_for(env_name: env, name: name)
+          db_config = base.configurations.configs_for(env_name: env, name: name)
           with_temporary_pool(db_config, clobber: clobber, &block)
         else
-          ActiveRecord::Base.configurations.configs_for(env_name: env, name: name).each do |db_config|
+          base.configurations.configs_for(env_name: env, name: name).each do |db_config|
             with_temporary_pool(db_config, clobber: clobber, &block)
           end
         end
@@ -534,34 +557,30 @@ module ActiveRecord
         end
       end
 
-      def migration_class # :nodoc:
-        ActiveRecord::Base
-      end
-
       def migration_connection # :nodoc:
-        migration_class.lease_connection
+        base.lease_connection
       end
 
       def migration_connection_pool # :nodoc:
-        migration_class.connection_pool
+        base.connection_pool
       end
 
       private
         def with_temporary_pool(db_config, clobber: false)
-          original_db_config = migration_class.connection_db_config
-          pool = migration_class.connection_handler.establish_connection(db_config, clobber: clobber)
+          original_db_config = base.connection_db_config
+          pool = base.establish_connection(db_config, clobber: clobber)
 
           yield pool
         ensure
-          migration_class.connection_handler.establish_connection(original_db_config, clobber: clobber)
+          base.establish_connection(original_db_config, clobber: clobber)
         end
 
         def configs_for(**options)
-          Base.configurations.configs_for(**options)
+          base.configurations.configs_for(**options)
         end
 
         def resolve_configuration(configuration)
-          Base.configurations.resolve(configuration)
+          base.configurations.resolve(configuration)
         end
 
         def verbose?
@@ -580,7 +599,7 @@ module ActiveRecord
         end
 
         def class_for_adapter(adapter)
-          _key, task = @tasks.reverse_each.detect { |pattern, _task| adapter[pattern] }
+          _key, task = tasks.reverse_each.detect { |pattern, _task| adapter[pattern] }
           unless task
             raise DatabaseNotSupported, "Rake tasks not supported by '#{adapter}' adapter"
           end
@@ -676,6 +695,9 @@ module ActiveRecord
             !database_already_initialized
           end
         end
+
+      extend self
+
     end
   end
 end

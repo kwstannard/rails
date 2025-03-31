@@ -116,6 +116,67 @@ module Rails
         @root = paths.path = Pathname.new(value).expand_path
       end
 
+      # Load the <tt>config/database.yml</tt> to create the Rake tasks for
+      # multiple databases without loading the environment and filling in the
+      # environment specific configuration values.
+      #
+      # Do not use this method, use #database_configuration instead.
+      def load_database_yaml # :nodoc:
+        if path = paths["config/database"].existent.first
+          require "rails/application/dummy_config"
+          original_rails_config = Rails.application.config
+
+          begin
+            Rails.application.config = DummyConfig.new(original_rails_config)
+            ActiveSupport::ConfigurationFile.parse(Pathname.new(path))
+          ensure
+            Rails.application.config = original_rails_config
+          end
+        else
+          {}
+        end
+      end
+
+      # Loads and returns the entire raw configuration of database from
+      # values stored in <tt>config/database.yml</tt>.
+      def database_configuration
+        path = paths["config/database"].existent.first
+        yaml = Pathname.new(path) if path
+
+        config = if yaml&.exist?
+          loaded_yaml = ActiveSupport::ConfigurationFile.parse(yaml)
+          if (shared = loaded_yaml.delete("shared"))
+            loaded_yaml.each do |env, config|
+              if config.is_a?(Hash) && config.values.all?(Hash)
+                if shared.is_a?(Hash) && shared.values.all?(Hash)
+                  config.map do |name, sub_config|
+                    sub_config.reverse_merge!(shared[name])
+                  end
+                else
+                  config.map do |name, sub_config|
+                    sub_config.reverse_merge!(shared)
+                  end
+                end
+              else
+                config.reverse_merge!(shared)
+              end
+            end
+          end
+          Hash.new(shared).merge(loaded_yaml)
+        elsif ENV["DATABASE_URL"]
+          # Value from ENV['DATABASE_URL'] is set to default database connection
+          # by Active Record.
+          {}
+        else
+          raise "Could not load database configuration. No such file - #{paths["config/database"].instance_variable_get(:@paths)}"
+        end
+
+        config
+      rescue => e
+        raise e, "Cannot load database configuration:\n#{e.message}", e.backtrace
+      end
+
+
       # Private method that adds custom autoload paths to the ones defined by
       # +paths+.
       def all_autoload_paths # :nodoc:

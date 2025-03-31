@@ -67,15 +67,14 @@ module ActiveRecord
       #     #<ActiveRecord::DatabaseConfigurations::HashConfig:0x00007fd1acbdea90 @env_name="production",
       #       @name="primary", @config={adapter: "sqlite3", database: "storage/production.sqlite3"}>
       #   ]>
-      def self.configurations=(config)
-        @@configurations = ActiveRecord::DatabaseConfigurations.new(config)
+      class_attribute :configurations, instance_writer: false, instance_predicate: false
+      class << self
+        alias class_attr_configurations= configurations=
+        def configurations=(config)
+          self.class_attr_configurations = ActiveRecord::DatabaseConfigurations.new(config)
+        end
       end
       self.configurations = {}
-
-      # Returns a fully resolved ActiveRecord::DatabaseConfigurations object.
-      def self.configurations
-        @@configurations
-      end
 
       ##
       # :singleton-method:
@@ -245,7 +244,10 @@ module ActiveRecord
         klass
       end
 
-      self.default_connection_handler = ConnectionAdapters::ConnectionHandler.new
+      def self.default_connection_handler
+        @default_connection_handler ||= ConnectionAdapters::ConnectionHandler.new(base: self)
+      end
+
       self.default_role = ActiveRecord.writing_role
       self.default_shard = :default
 
