@@ -509,7 +509,7 @@ module ActiveRecord
         connection_name = primary_class? ? Base.name : name
         self.connection_specification_name = connection_name
 
-        Base.configurations.resolve(config_or_env)
+        configurations.resolve(config_or_env)
       end
 
       def with_role_and_shard(role, shard, prevent_writes)
