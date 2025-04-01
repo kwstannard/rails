@@ -111,42 +111,28 @@ module ActiveRecord
       end
 
       def establish_connection(config, connection_name: Base, role: Base.current_role, shard: Base.current_shard, clobber: false)
-        connection_name = determine_connection_name(connection_name, config)
+        connection_name = if connection_name.is_a?(String) || connection_name.is_a?(Symbol)
+            ConnectionDescriptor.new(connection_name.to_s)
+          elsif config.is_a?(Symbol)
+            ConnectionDescriptor.new(config.to_s)
+          else
+            connection_name
+          end
 
-        pool_config = resolve_pool_config(config, connection_name, role, shard)
+        db_config = Base.configurations.resolve(config)
+        db_config.validate!
+        raise(AdapterNotSpecified, "database configuration does not specify adapter") unless db_config.adapter
         db_config = pool_config.db_config
 
-        pool_manager = set_pool_manager(pool_config.connection_descriptor)
+        pool_manager = connection_name_to_pool_manager[connection_descriptor.name] ||= PoolManager.new
 
-        # If there is an existing pool with the same values as the pool_config
-        # don't remove the connection. Connections should only be removed if we are
-        # establishing a connection on a class that is already connected to a different
-        # configuration.
-        existing_pool_config = pool_manager.get_pool_config(role, shard)
-
-        if !clobber && existing_pool_config && existing_pool_config.db_config == db_config
+        if clobber
+          pool_manager.clobber_pool_config(connection_name, role, shard, db_config).pool
+        else
           # Update the pool_config's connection class if it differs. This is used
           # for ensuring that ActiveRecord::Base and the primary_abstract_class use
           # the same pool. Without this granular swapping will not work correctly.
-          if connection_name.primary_class? && (existing_pool_config.connection_descriptor != connection_name)
-            existing_pool_config.connection_descriptor = connection_name
-          end
-
-          existing_pool_config.pool
-        else
-          disconnect_pool_from_pool_manager(pool_manager, role, shard)
-          pool_manager.set_pool_config(role, shard, pool_config)
-
-          payload = {
-            connection_name: pool_config.connection_descriptor.name,
-            role: role,
-            shard: shard,
-            config: db_config.configuration_hash
-          }
-
-          ActiveSupport::Notifications.instrumenter.instrument("!connection.active_record", payload) do
-            pool_config.pool
-          end
+          pool_manager.update_pool_config(connection_name, role, shard, db_config).pool
         end
       end
 

@@ -45,6 +45,36 @@ module ActiveRecord
         @role_to_shard_mapping[role][shard]
       end
 
+      def update_pool_config(connection_name, role, shard, db_config)
+        pool_config = ConnectionAdapters::PoolConfig.new(connection_name, db_config, role, shard)
+        existing_pool_config = get_pool_config(role, shard)
+        if existing_pool_config && existing_pool_config.db_config == db_config && connection_name.primary_class? 
+          existing_pool_config.connection_descriptor = connection_name
+        end
+        existing_pool_config
+      end
+
+      def clobber_pool_config(connection_name, role, shard, db_config)
+        pool_config = remove_pool_config(role, shard)
+
+        if pool_config
+          pool_config.disconnect!
+          pool_config.db_config
+        end
+        pool_manager.set_pool_config(role, shard, pool_config)
+
+        payload = {
+          connection_name: pool_config.connection_descriptor.name,
+          role: role,
+          shard: shard,
+          config: db_config.configuration_hash
+        }
+
+        ActiveSupport::Notifications.instrumenter.instrument("!connection.active_record", payload) do
+          pool_config.pool
+        end
+      end
+
       def set_pool_config(role, shard, pool_config)
         if pool_config
           @role_to_shard_mapping[role][shard] = pool_config
