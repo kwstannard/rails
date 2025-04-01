@@ -3,7 +3,7 @@
 module ActiveRecord
   class PendingMigrationConnection # :nodoc:
     def self.with_temporary_pool(db_config, &block)
-      pool = ActiveRecord::Base.connection_handler.establish_connection(db_config, owner_name: self)
+      pool = ActiveRecord::Base.connection_handler.establish_connection(db_config, connection_name: self)
 
       yield pool
     ensure

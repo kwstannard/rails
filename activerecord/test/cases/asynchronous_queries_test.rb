@@ -138,7 +138,7 @@ class AsynchronousExecutorTypeTest < ActiveRecord::TestCase
     db_config = ActiveRecord::Base.configurations.configs_for(env_name: "arunit", name: "primary")
     db_config2 = ActiveRecord::Base.configurations.configs_for(env_name: "arunit2", name: "primary")
     pool1 = handler.establish_connection(db_config)
-    pool2 = handler.establish_connection(db_config2, owner_name: ARUnit2Model)
+    pool2 = handler.establish_connection(db_config2, connection_name: ARUnit2Model)
 
     async_pool1 = pool1.instance_variable_get(:@async_executor)
     async_pool2 = pool2.instance_variable_get(:@async_executor)
@@ -159,7 +159,7 @@ class AsynchronousExecutorTypeTest < ActiveRecord::TestCase
     db_config = ActiveRecord::Base.configurations.configs_for(env_name: "arunit", name: "primary")
     db_config2 = ActiveRecord::Base.configurations.configs_for(env_name: "arunit2", name: "primary")
     pool1 = handler.establish_connection(db_config)
-    pool2 = handler.establish_connection(db_config2, owner_name: ARUnit2Model)
+    pool2 = handler.establish_connection(db_config2, connection_name: ARUnit2Model)
 
     async_pool1 = pool1.instance_variable_get(:@async_executor)
     async_pool2 = pool2.instance_variable_get(:@async_executor)
@@ -195,7 +195,7 @@ class AsynchronousExecutorTypeTest < ActiveRecord::TestCase
     db_config = ActiveRecord::Base.configurations.configs_for(env_name: "arunit", name: "primary")
     db_config2 = ActiveRecord::Base.configurations.configs_for(env_name: "arunit2", name: "primary")
     pool1 = handler.establish_connection(db_config)
-    pool2 = handler.establish_connection(db_config2, owner_name: ARUnit2Model)
+    pool2 = handler.establish_connection(db_config2, connection_name: ARUnit2Model)
 
     async_pool1 = pool1.instance_variable_get(:@async_executor)
     async_pool2 = pool2.instance_variable_get(:@async_executor)
@@ -248,7 +248,7 @@ class AsynchronousExecutorTypeTest < ActiveRecord::TestCase
     db_config = ActiveRecord::DatabaseConfigurations::HashConfig.new("arunit", "primary", new_config_hash)
     db_config2 = ActiveRecord::Base.configurations.configs_for(env_name: "arunit2", name: "primary")
     pool1 = handler.establish_connection(db_config)
-    pool2 = handler.establish_connection(db_config2, owner_name: ARUnit2Model)
+    pool2 = handler.establish_connection(db_config2, connection_name: ARUnit2Model)
 
     async_pool1 = pool1.instance_variable_get(:@async_executor)
     async_pool2 = pool2.instance_variable_get(:@async_executor)
@@ -287,7 +287,7 @@ class AsynchronousExecutorTypeTest < ActiveRecord::TestCase
     db_config2 = ActiveRecord::DatabaseConfigurations::HashConfig.new("arunit2", "primary", new_config2)
 
     pool1 = handler.establish_connection(db_config1)
-    pool2 = handler.establish_connection(db_config2, owner_name: ARUnit2Model)
+    pool2 = handler.establish_connection(db_config2, connection_name: ARUnit2Model)
 
     async_pool1 = pool1.instance_variable_get(:@async_executor)
     async_pool2 = pool2.instance_variable_get(:@async_executor)

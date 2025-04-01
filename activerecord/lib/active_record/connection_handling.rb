@@ -64,7 +64,7 @@ module ActiveRecord
     def establish_connection(config_or_env = nil)
       config_or_env ||= DEFAULT_ENV.call.to_sym
       db_config = resolve_config_for_connection(config_or_env)
-      connection_handler.establish_connection(db_config, owner_name: self, role: current_role, shard: current_shard)
+      connection_handler.establish_connection(db_config, connection_name: self, role: current_role, shard: current_shard)
     end
 
     # Connects a model to the databases specified. The +database+ keyword
@@ -114,7 +114,7 @@ module ActiveRecord
           db_config = resolve_config_for_connection(database_key)
 
           self.connection_class = true
-          connections << connection_handler.establish_connection(db_config, owner_name: self, role: role, shard: shard.to_sym)
+          connections << connection_handler.establish_connection(db_config, connection_name: self, role: role, shard: shard.to_sym)
         end
       end
 

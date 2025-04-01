@@ -209,14 +209,14 @@ module ActiveRecord
         ActiveRecord::Base.configurations = @prev_configs
       end
 
-      def test_establish_connection_with_string_owner_name
+      def test_establish_connection_with_string_connection_name
         config = {
           "development" => { "adapter" => "sqlite3", "database" => "test/db/primary.sqlite3" },
           "development_readonly" => { "adapter" => "sqlite3", "database" => "test/db/readonly.sqlite3" }
         }
         @prev_configs, ActiveRecord::Base.configurations = ActiveRecord::Base.configurations, config
 
-        @handler.establish_connection(:development_readonly, owner_name: "custom_connection")
+        @handler.establish_connection(:development_readonly, connection_name: "custom_connection")
 
         assert_not_nil pool = @handler.retrieve_connection_pool("custom_connection")
         assert_not_predicate pool.lease_connection, :preventing_writes?

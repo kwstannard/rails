@@ -110,10 +110,10 @@ module ActiveRecord
         end
       end
 
-      def establish_connection(config, owner_name: Base, role: Base.current_role, shard: Base.current_shard, clobber: false)
-        owner_name = determine_owner_name(owner_name, config)
+      def establish_connection(config, connection_name: Base, role: Base.current_role, shard: Base.current_shard, clobber: false)
+        connection_name = determine_connection_name(connection_name, config)
 
-        pool_config = resolve_pool_config(config, owner_name, role, shard)
+        pool_config = resolve_pool_config(config, connection_name, role, shard)
         db_config = pool_config.db_config
 
         pool_manager = set_pool_manager(pool_config.connection_descriptor)
@@ -128,8 +128,8 @@ module ActiveRecord
           # Update the pool_config's connection class if it differs. This is used
           # for ensuring that ActiveRecord::Base and the primary_abstract_class use
           # the same pool. Without this granular swapping will not work correctly.
-          if owner_name.primary_class? && (existing_pool_config.connection_descriptor != owner_name)
-            existing_pool_config.connection_descriptor = owner_name
+          if connection_name.primary_class? && (existing_pool_config.connection_descriptor != connection_name)
+            existing_pool_config.connection_descriptor = connection_name
           end
 
           existing_pool_config.pool
@@ -277,13 +277,13 @@ module ActiveRecord
           ConnectionAdapters::PoolConfig.new(connection_name, db_config, role, shard)
         end
 
-        def determine_owner_name(owner_name, config)
-          if owner_name.is_a?(String) || owner_name.is_a?(Symbol)
-            ConnectionDescriptor.new(owner_name.to_s)
+        def determine_connection_name(connection_name, config)
+          if connection_name.is_a?(String) || connection_name.is_a?(Symbol)
+            ConnectionDescriptor.new(connection_name.to_s)
           elsif config.is_a?(Symbol)
             ConnectionDescriptor.new(config.to_s)
           else
-            owner_name
+            connection_name
           end
         end
     end
