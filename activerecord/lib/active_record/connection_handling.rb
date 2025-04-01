@@ -293,15 +293,6 @@ module ActiveRecord
       end
     end
 
-    # Returns the connection currently associated with the class. This can
-    # also be used to "borrow" the connection to do database work unrelated
-    # to any of the specific Active Records.
-    # The connection will remain leased for the entire duration of the request
-    # or job, or until +#release_connection+ is called.
-    def lease_connection
-      connection_pool.lease_connection
-    end
-
     # Soft deprecated. Use +#with_connection+ or +#lease_connection+ instead.
     def connection
       pool = connection_pool
@@ -449,6 +440,7 @@ module ActiveRecord
     def retrieve_connection
       connection_handler.retrieve_connection(connection_specification_name, role: current_role, shard: current_shard)
     end
+    alias lease_connection retrieve_connection
 
     # Returns +true+ if Active Record is connected.
     def connected?
