@@ -96,11 +96,8 @@ module ActiveRecord
       # Returns the pools for a connection handler and given role. If +:all+ is passed,
       # all pools belonging to the connection handler will be returned.
       def connection_pool_list(role = nil)
-        if role.nil? || role == :all
-          connection_name_to_pool_manager.values.flat_map { |m| m.pool_configs.map(&:pool) }
-        else
-          connection_name_to_pool_manager.values.flat_map { |m| m.pool_configs(role).map(&:pool) }
-        end
+        role = nil if role == :all
+        connection_name_to_pool_manager.values.flat_map { |m| m.pool_configs(role).map(&:pool) }
       end
       alias :connection_pools :connection_pool_list
 
