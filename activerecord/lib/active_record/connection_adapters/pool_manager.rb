@@ -16,7 +16,7 @@ module ActiveRecord
       end
 
       def pool_configs(role = nil)
-        if role
+        if role && role != :all
           @role_to_shard_mapping[role].values
         else
           @role_to_shard_mapping.flat_map { |_, shard_map| shard_map.values }
@@ -24,7 +24,7 @@ module ActiveRecord
       end
 
       def each_pool_config(role = nil, &block)
-        if role
+        if role && role != :all
           @role_to_shard_mapping[role].each_value(&block)
         else
           @role_to_shard_mapping.each_value do |shard_map|

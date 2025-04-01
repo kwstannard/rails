@@ -96,13 +96,11 @@ module ActiveRecord
       # Returns the pools for a connection handler and given role. If +:all+ is passed,
       # all pools belonging to the connection handler will be returned.
       def connection_pool_list(role = nil)
-        role = nil if role == :all
         connection_name_to_pool_manager.values.flat_map { |m| m.pool_configs(role).map(&:pool) }
       end
       alias :connection_pools :connection_pool_list
 
       def each_connection_pool(role = nil, &block) # :nodoc:
-        role = nil if role == :all
         return enum_for(__method__, role) unless block_given?
 
         connection_name_to_pool_manager.each_value do |manager|
