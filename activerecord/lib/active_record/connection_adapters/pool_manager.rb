@@ -46,7 +46,6 @@ module ActiveRecord
       end
 
       def update_pool_config(connection_name, role, shard, db_config)
-        pool_config = ConnectionAdapters::PoolConfig.new(connection_name, db_config, role, shard)
         existing_pool_config = get_pool_config(role, shard)
         if existing_pool_config && existing_pool_config.db_config == db_config && connection_name.primary_class? 
           existing_pool_config.connection_descriptor = connection_name
