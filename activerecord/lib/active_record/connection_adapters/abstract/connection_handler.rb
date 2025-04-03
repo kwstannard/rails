@@ -77,7 +77,7 @@ module ActiveRecord
 
       def initialize
         # These caches are keyed by pool_config.connection_name (PoolConfig#connection_name).
-        @connection_name_to_pool_manager = Concurrent::Map.new(initial_capacity: 2)
+        @connection_name_to_pool_manager = Concurrent::Map.new(initial_capacity: 2) {|h,k| h[k] = PoolManager.new }
         @default_role = ActiveRecord.writing_role
       end
 
@@ -122,18 +122,19 @@ module ActiveRecord
         db_config = Base.configurations.resolve(config)
         db_config.validate!
         raise(AdapterNotSpecified, "database configuration does not specify adapter") unless db_config.adapter
-        db_config = pool_config.db_config
 
-        pool_manager = connection_name_to_pool_manager[connection_descriptor.name] ||= PoolManager.new
+        pool_manager = connection_name_to_pool_manager[connection_name.name]
 
         if clobber
-          pool_manager.clobber_pool_config(connection_name, role, shard, db_config).pool
+          pool_manager.clobber_pool_config(connection_name, role, shard, db_config)
         else
-          # Update the pool_config's connection class if it differs. This is used
-          # for ensuring that ActiveRecord::Base and the primary_abstract_class use
-          # the same pool. Without this granular swapping will not work correctly.
-          pool_manager.update_pool_config(connection_name, role, shard, db_config).pool
+          # This is used for ensuring that ActiveRecord::Base and the
+          # primary_abstract_class use the same pool. Without this granular
+          # swapping will not work correctly.
+          pool_manager.update_pool_config(connection_name, role, shard, db_config)
         end
+
+        pool_manager.get_pool_config(role, shard).pool
       end
 
       # Returns true if there are any active connections among the connection

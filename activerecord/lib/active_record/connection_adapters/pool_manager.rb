@@ -50,8 +50,9 @@ module ActiveRecord
         existing_pool_config = get_pool_config(role, shard)
         if existing_pool_config && existing_pool_config.db_config == db_config && connection_name.primary_class? 
           existing_pool_config.connection_descriptor = connection_name
+        else
+          clobber_pool_config(connection_name, role, shard, db_config)
         end
-        existing_pool_config
       end
 
       def clobber_pool_config(connection_name, role, shard, db_config)
@@ -60,8 +61,10 @@ module ActiveRecord
         if pool_config
           pool_config.disconnect!
           pool_config.db_config
+        else
+          pool_config = ConnectionAdapters::PoolConfig.new(connection_name, db_config, role, shard)
         end
-        pool_manager.set_pool_config(role, shard, pool_config)
+        set_pool_config(role, shard, pool_config)
 
         payload = {
           connection_name: pool_config.connection_descriptor.name,
