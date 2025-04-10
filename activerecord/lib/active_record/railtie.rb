@@ -251,15 +251,15 @@ To keep using the current cache store, you can turn off cache versioning entirel
       end
     end
 
-    # This sets the database configuration from Configuration#database_configuration
-    # and then establishes the connection.
-    initializer "active_record.initialize_database" do
-      ActiveSupport.on_load(:active_record) do
-        self.configurations = Rails.application.config.database_configuration
+#     # This sets the database configuration from Configuration#database_configuration
+#     # and then establishes the connection.
+#     initializer "active_record.initialize_database" do
+#       ActiveSupport.on_load(:active_record) do
+#         self.configurations = Rails.application.config.database_configuration
 
-        establish_connection
-      end
-    end
+#         establish_connection
+#       end
+#     end
 
     # Expose database runtime for logging.
     initializer "active_record.log_runtime" do

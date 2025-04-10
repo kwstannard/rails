@@ -366,6 +366,14 @@ module Rails
 
             File.dirname(call_stack.detect { |p| !p.match?(%r[railties[\w.-]*/lib/rails|rack[\w.-]*/lib/rack]) })
           end
+
+          if base.config.database_configuration
+            base.config.after_initialize do
+              base.config.root_record = base.module_parent::ApplicationRecord
+              base.config.root_record.configurations = base.config.database_configuration
+            rescue NameError
+            end
+          end
         end
 
         super

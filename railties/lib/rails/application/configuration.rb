@@ -409,7 +409,6 @@ module Rails
       def paths
         @paths ||= begin
           paths = super
-          paths.add "config/database",    with: "config/database.yml"
           paths.add "config/environment", with: "config/environment.rb"
           paths.add "lib/templates"
           paths.add "log",                with: "log/#{Rails.env}.log"
@@ -440,45 +439,6 @@ module Rails
         else
           {}
         end
-      end
-
-      # Loads and returns the entire raw configuration of database from
-      # values stored in <tt>config/database.yml</tt>.
-      def database_configuration
-        path = paths["config/database"].existent.first
-        yaml = Pathname.new(path) if path
-
-        config = if yaml&.exist?
-          loaded_yaml = ActiveSupport::ConfigurationFile.parse(yaml)
-          if (shared = loaded_yaml.delete("shared"))
-            loaded_yaml.each do |env, config|
-              if config.is_a?(Hash) && config.values.all?(Hash)
-                if shared.is_a?(Hash) && shared.values.all?(Hash)
-                  config.map do |name, sub_config|
-                    sub_config.reverse_merge!(shared[name])
-                  end
-                else
-                  config.map do |name, sub_config|
-                    sub_config.reverse_merge!(shared)
-                  end
-                end
-              else
-                config.reverse_merge!(shared)
-              end
-            end
-          end
-          Hash.new(shared).merge(loaded_yaml)
-        elsif ENV["DATABASE_URL"]
-          # Value from ENV['DATABASE_URL'] is set to default database connection
-          # by Active Record.
-          {}
-        else
-          raise "Could not load database configuration. No such file - #{paths["config/database"].instance_variable_get(:@paths)}"
-        end
-
-        config
-      rescue => e
-        raise e, "Cannot load database configuration:\n#{e.message}", e.backtrace
       end
 
       def autoload_lib(ignore:)

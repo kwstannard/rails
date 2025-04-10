@@ -67,14 +67,11 @@ module ActiveRecord
       #     #<ActiveRecord::DatabaseConfigurations::HashConfig:0x00007fd1acbdea90 @env_name="production",
       #       @name="primary", @config={adapter: "sqlite3", database: "storage/production.sqlite3"}>
       #   ]>
-      def self.configurations=(config)
-        @@configurations = ActiveRecord::DatabaseConfigurations.new(config)
-      end
-      self.configurations = {}
-
-      # Returns a fully resolved ActiveRecord::DatabaseConfigurations object.
-      def self.configurations
-        @@configurations
+      class << self
+        attr_reader :configurations
+        def configurations=(config)
+          @configurations = ActiveRecord::DatabaseConfigurations.new(config) if config
+        end
       end
 
       ##
@@ -306,6 +303,7 @@ module ActiveRecord
             @filter_attributes ||= nil
             @generated_association_methods ||= nil
           end
+          subclass.configurations = configurations
         end
 
         def relation

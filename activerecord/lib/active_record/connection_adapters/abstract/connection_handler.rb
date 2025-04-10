@@ -119,7 +119,7 @@ module ActiveRecord
             connection_name
           end
 
-        db_config = Base.configurations.resolve(config)
+        db_config = connection_name.configurations.resolve(config)
         db_config.validate!
         raise(AdapterNotSpecified, "database configuration does not specify adapter") unless db_config.adapter
 

@@ -6,7 +6,7 @@ module Rails
   class Engine
     class Configuration < ::Rails::Railtie::Configuration
       attr_reader :root
-      attr_accessor :middleware, :javascript_path, :route_set_class, :default_scope
+      attr_accessor :middleware, :javascript_path, :route_set_class, :default_scope, :root_record
       attr_writer :eager_load_paths, :autoload_once_paths, :autoload_paths
 
       # An array of custom autoload paths to be added to the ones defined
@@ -101,6 +101,7 @@ module Rails
 
           paths.add "db"
           paths.add "db/migrate"
+          paths.add "config/database",    with: "config/database.yml"
           paths.add "db/seeds.rb"
 
           paths.add "vendor",              load_path: true
@@ -132,6 +133,41 @@ module Rails
       # +paths+.
       def all_eager_load_paths # :nodoc:
         eager_load_paths + paths.eager_load
+      end
+
+      def root_record
+        @root_record ||= ActiveRecord::Base
+      end
+
+      # Loads and returns the entire raw configuration of database from
+      # values stored in <tt>config/database.yml</tt>.
+      def database_configuration
+        path = paths["config/database"].existent.first
+        yaml = Pathname.new(path) if path
+
+        config = if yaml&.exist?
+          loaded_yaml = ActiveSupport::ConfigurationFile.parse(yaml)
+          if (shared = loaded_yaml.delete("shared"))
+            loaded_yaml.each do |env, config|
+              if config.is_a?(Hash) && config.values.all?(Hash)
+                if shared.is_a?(Hash) && shared.values.all?(Hash)
+                  config.map do |name, sub_config|
+                    sub_config.reverse_merge!(shared[name])
+                  end
+                else
+                  config.map do |name, sub_config|
+                    sub_config.reverse_merge!(shared)
+                  end
+                end
+              else
+                config.reverse_merge!(shared)
+              end
+            end
+          end
+          Hash.new(shared).merge(loaded_yaml)
+        end
+
+        config
       end
     end
   end
