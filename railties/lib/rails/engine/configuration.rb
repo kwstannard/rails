@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "rails/railtie/configuration"
+require 'active_support/core_ext/hash'
 
 module Rails
   class Engine
@@ -135,10 +136,6 @@ module Rails
         eager_load_paths + paths.eager_load
       end
 
-      def root_record
-        @root_record ||= ActiveRecord::Base
-      end
-
       # Loads and returns the entire raw configuration of database from
       # values stored in <tt>config/database.yml</tt>.
       def database_configuration
@@ -164,10 +161,17 @@ module Rails
               end
             end
           end
-          Hash.new(shared).merge(loaded_yaml)
+          Hash.new(shared).merge(loaded_yaml).merge_leaves(default_database_path_config)
         end
 
         config
+      end
+
+      def default_database_path_config
+        @default_database_path_config ||= {
+          "migrations_paths" => paths['db/migrate'].to_a,
+          "schema_dump" => paths['db'].paths.first.join("schema.rb"),
+        }
       end
     end
   end

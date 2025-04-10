@@ -8,33 +8,25 @@ databases = ActiveRecord::Tasks::DatabaseTasks.setup_initial_database_yaml
 
 db_namespace = namespace :db do
   desc "Set the environment value for the database"
-  task "environment:set" => :load_config do
+  task "environment:set" do
     pool = ActiveRecord::Tasks::DatabaseTasks.migration_connection_pool
     raise ActiveRecord::EnvironmentStorageError unless pool.internal_metadata.enabled?
 
     pool.internal_metadata.create_table_and_set_flags(pool.migration_context.current_environment)
   end
 
-  task check_protected_environments: :load_config do
+  task :check_protected_environments do
     ActiveRecord::Tasks::DatabaseTasks.check_protected_environments!
   end
 
-  task load_config: :environment do
-    if ActiveRecord::Base.configurations.empty?
-      ActiveRecord::Base.configurations = ActiveRecord::Tasks::DatabaseTasks.database_configuration
-    end
-
-    ActiveRecord::Migrator.migrations_paths = ActiveRecord::Tasks::DatabaseTasks.migrations_paths
-  end
-
   namespace :create do
-    task all: :load_config do
+    task :all do
       ActiveRecord::Tasks::DatabaseTasks.create_all
     end
 
     ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
       desc "Create #{name} database for current environment"
-      task name => :load_config do
+      task name do
         db_config = ActiveRecord::Base.configurations.configs_for(env_name: Rails.env, name: name)
         ActiveRecord::Tasks::DatabaseTasks.create(db_config)
       end
@@ -42,18 +34,18 @@ db_namespace = namespace :db do
   end
 
   desc "Create the database from DATABASE_URL or config/database.yml for the current RAILS_ENV (use db:create:all to create all databases in the config). Without RAILS_ENV or when RAILS_ENV is development, it defaults to creating the development and test databases, except when DATABASE_URL is present."
-  task create: [:load_config] do
+  task :create do
     ActiveRecord::Tasks::DatabaseTasks.create_current
   end
 
   namespace :drop do
-    task all: [:load_config, :check_protected_environments] do
+    task all: [:check_protected_environments] do
       ActiveRecord::Tasks::DatabaseTasks.drop_all
     end
 
     ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
       desc "Drop #{name} database for current environment"
-      task name => [:load_config, :check_protected_environments] do
+      task name => [:check_protected_environments] do
         db_config = ActiveRecord::Base.configurations.configs_for(env_name: Rails.env, name: name)
         ActiveRecord::Tasks::DatabaseTasks.drop(db_config)
       end
@@ -61,32 +53,32 @@ db_namespace = namespace :db do
   end
 
   desc "Drop the database from DATABASE_URL or config/database.yml for the current RAILS_ENV (use db:drop:all to drop all databases in the config). Without RAILS_ENV or when RAILS_ENV is development, it defaults to dropping the development and test databases, except when DATABASE_URL is present."
-  task drop: [:load_config, :check_protected_environments] do
+  task drop: [:check_protected_environments] do
     db_namespace["drop:_unsafe"].invoke
   end
 
-  task "drop:_unsafe" => [:load_config] do
+  task "drop:_unsafe" do
     ActiveRecord::Tasks::DatabaseTasks.drop_current
   end
 
   namespace :purge do
-    task all: [:load_config, :check_protected_environments] do
+    task all: [:check_protected_environments] do
       ActiveRecord::Tasks::DatabaseTasks.purge_all
     end
   end
 
   # desc "Truncates tables of each database for current environment"
-  task truncate_all: [:load_config, :check_protected_environments] do
+  task truncate_all: [:check_protected_environments] do
     ActiveRecord::Tasks::DatabaseTasks.truncate_all
   end
 
   # desc "Empty the database from DATABASE_URL or config/database.yml for the current RAILS_ENV (use db:purge:all to purge all databases in the config). Without RAILS_ENV it defaults to purging the development and test databases, except when DATABASE_URL is present."
-  task purge: [:load_config, :check_protected_environments] do
+  task purge: [:check_protected_environments] do
     ActiveRecord::Tasks::DatabaseTasks.purge_current
   end
 
   desc "Migrate the database (options: VERSION=x, VERBOSE=false, SCOPE=blog)."
-  task migrate: :load_config do
+  task :migrate do
     ActiveRecord::Tasks::DatabaseTasks.migrate_all
     db_namespace["_dump"].invoke
   end
@@ -119,7 +111,7 @@ db_namespace = namespace :db do
   namespace :migrate do
     ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
       desc "Migrate #{name} database for current environment"
-      task name => :load_config do
+      task name do
         ActiveRecord::Tasks::DatabaseTasks.with_temporary_pool_for_each(env: Rails.env, name: name) do
           ActiveRecord::Tasks::DatabaseTasks.migrate
         end
@@ -129,7 +121,7 @@ db_namespace = namespace :db do
     end
 
     desc "Roll back the database one migration and re-migrate up (options: STEP=x, VERSION=x)."
-    task redo: :load_config do
+    task :redo do
       ActiveRecord::Tasks::DatabaseTasks.raise_for_multi_db(command: "db:migrate:redo")
 
       raise "Empty VERSION provided" if ENV["VERSION"] && ENV["VERSION"].empty?
@@ -146,7 +138,7 @@ db_namespace = namespace :db do
     namespace :redo do
       ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
         desc "Roll back #{name} database one migration and re-migrate up (options: STEP=x, VERSION=x)."
-        task name => :load_config do
+        task name do
           raise "Empty VERSION provided" if ENV["VERSION"] && ENV["VERSION"].empty?
 
           if ENV["VERSION"]
@@ -164,7 +156,7 @@ db_namespace = namespace :db do
     task reset: ["db:drop", "db:create", "db:schema:dump", "db:migrate"]
 
     desc 'Run the "up" for a given migration VERSION.'
-    task up: :load_config do
+    task :up do
       ActiveRecord::Tasks::DatabaseTasks.raise_for_multi_db(command: "db:migrate:up")
 
       raise "VERSION is required" if !ENV["VERSION"] || ENV["VERSION"].empty?
@@ -181,7 +173,7 @@ db_namespace = namespace :db do
     namespace :up do
       ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
         desc "Run the \"up\" on #{name} database for a given migration VERSION."
-        task name => :load_config do
+        task name do
           raise "VERSION is required" if !ENV["VERSION"] || ENV["VERSION"].empty?
 
           ActiveRecord::Tasks::DatabaseTasks.with_temporary_pool_for_each(env: Rails.env, name: name) do |pool|
@@ -195,7 +187,7 @@ db_namespace = namespace :db do
     end
 
     desc 'Run the "down" for a given migration VERSION.'
-    task down: :load_config do
+    task :down do
       ActiveRecord::Tasks::DatabaseTasks.raise_for_multi_db(command: "db:migrate:down")
 
       raise "VERSION is required - To go down one migration, use db:rollback" if !ENV["VERSION"] || ENV["VERSION"].empty?
@@ -212,7 +204,7 @@ db_namespace = namespace :db do
     namespace :down do
       ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
         desc "Run the \"down\" on #{name} database for a given migration VERSION."
-        task name => :load_config do
+        task name do
           raise "VERSION is required" if !ENV["VERSION"] || ENV["VERSION"].empty?
 
           ActiveRecord::Tasks::DatabaseTasks.with_temporary_pool_for_each(env: Rails.env, name: name) do |pool|
@@ -226,7 +218,7 @@ db_namespace = namespace :db do
     end
 
     desc "Display status of migrations"
-    task status: :load_config do
+    task :status do
       ActiveRecord::Tasks::DatabaseTasks.with_temporary_pool_for_each do
         ActiveRecord::Tasks::DatabaseTasks.migrate_status
       end
@@ -235,7 +227,7 @@ db_namespace = namespace :db do
     namespace :status do
       ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
         desc "Display status of migrations for #{name} database"
-        task name => :load_config do
+        task name do
           ActiveRecord::Tasks::DatabaseTasks.with_temporary_pool_for_each(env: Rails.env, name: name) do
             ActiveRecord::Tasks::DatabaseTasks.migrate_status
           end
@@ -247,7 +239,7 @@ db_namespace = namespace :db do
   namespace :rollback do
     ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
       desc "Rollback #{name} database for current environment (specify steps w/ STEP=n)."
-      task name => :load_config do
+      task name do
         step = ENV["STEP"] ? ENV["STEP"].to_i : 1
 
         ActiveRecord::Tasks::DatabaseTasks.with_temporary_pool_for_each(env: Rails.env, name: name) do |pool|
@@ -260,7 +252,7 @@ db_namespace = namespace :db do
   end
 
   desc "Roll the schema back to the previous version (specify steps w/ STEP=n)."
-  task rollback: :load_config do
+  task :rollback do
     ActiveRecord::Tasks::DatabaseTasks.raise_for_multi_db(command: "db:rollback")
     raise "VERSION is not supported - To rollback a specific version, use db:migrate:down" if ENV["VERSION"]
 
@@ -272,7 +264,7 @@ db_namespace = namespace :db do
   end
 
   # desc 'Pushes the schema to the next version (specify steps w/ STEP=n).'
-  task forward: :load_config do
+  task :forward do
     step = ENV["STEP"] ? ENV["STEP"].to_i : 1
 
     ActiveRecord::Tasks::DatabaseTasks.migration_connection_pool.migration_context.forward(step)
@@ -293,19 +285,19 @@ db_namespace = namespace :db do
   task reset: [ "db:drop", "db:setup" ]
 
   # desc "Retrieve the charset for the current environment's database"
-  task charset: :load_config do
+  task :charset do
     puts ActiveRecord::Tasks::DatabaseTasks.charset_current
   end
 
   # desc "Retrieve the collation for the current environment's database"
-  task collation: :load_config do
+  task :collation do
     puts ActiveRecord::Tasks::DatabaseTasks.collation_current
   rescue NoMethodError
     $stderr.puts "Sorry, your database adapter is not supported yet. Feel free to submit a patch."
   end
 
   desc "Retrieve the current schema version number"
-  task version: :load_config do
+  task :version do
     ActiveRecord::Tasks::DatabaseTasks.with_temporary_pool_for_each(env: Rails.env) do |pool|
       puts "\ndatabase: #{pool.db_config.database}\n"
       puts "Current version: #{pool.migration_context.current_version}"
@@ -316,7 +308,7 @@ db_namespace = namespace :db do
   namespace :version do
     ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
       desc "Retrieve the current schema version number for #{name} database"
-      task name => :load_config do
+      task name do
         db_config = ActiveRecord::Base.configurations.configs_for(env_name: Rails.env, name: name)
         ActiveRecord::Tasks::DatabaseTasks.with_temporary_connection(db_config) do |connection|
           puts "Current version: #{connection.schema_version}"
@@ -326,7 +318,7 @@ db_namespace = namespace :db do
   end
 
   # desc "Raises an error if there are pending migrations"
-  task abort_if_pending_migrations: :load_config do
+  task :abort_if_pending_migrations do
     pending_migrations = []
 
     ActiveRecord::Tasks::DatabaseTasks.with_temporary_pool_for_each do |pool|
@@ -349,7 +341,7 @@ db_namespace = namespace :db do
   namespace :abort_if_pending_migrations do
     ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
       # desc "Raise an error if there are pending migrations for #{name} database"
-      task name => :load_config do
+      task name do
         ActiveRecord::Tasks::DatabaseTasks.with_temporary_pool_for_each(env: Rails.env, name: name) do |pool|
           pending_migrations = pool.migration_context.open.pending_migrations
 
@@ -380,24 +372,22 @@ db_namespace = namespace :db do
   task setup: ["db:create", :environment, "db:schema:load", :seed]
 
   desc "Run setup if database does not exist, or run migrations if it does"
-  task prepare: :load_config do
-    ActiveRecord::Tasks::DatabaseTasks.prepare_all
-  end
+  task :prepare
 
   desc "Load the seed data from db/seeds.rb"
-  task seed: :load_config do
+  task :seed do
     db_namespace["abort_if_pending_migrations"].invoke
     ActiveRecord::Tasks::DatabaseTasks.load_seed
   end
 
   namespace :seed do
     desc "Truncate tables of each database for current environment and load the seeds"
-    task replant: [:load_config, :truncate_all, :seed]
+    task replant: [:truncate_all, :seed]
   end
 
   namespace :fixtures do
     desc "Load fixtures into the current environment's database. To load specific fixtures, use FIXTURES=x,y. To load from subdirectory in test/fixtures, use FIXTURES_DIR=z. To specify an alternative path (e.g. spec/fixtures), use FIXTURES_PATH=spec/fixtures."
-    task load: :load_config do
+    task :load do
       require "active_record/fixtures"
 
       base_dir = ActiveRecord::Tasks::DatabaseTasks.fixtures_path
@@ -420,7 +410,7 @@ db_namespace = namespace :db do
     end
 
     # desc "Search for a fixture given a LABEL or ID. Specify an alternative path (e.g. spec/fixtures) using FIXTURES_PATH=spec/fixtures."
-    task identify: :load_config do
+    task :identify do
       require "active_record/fixtures"
 
       label, id = ENV["LABEL"], ENV["ID"]
@@ -446,21 +436,21 @@ db_namespace = namespace :db do
 
   namespace :schema do
     desc "Create a database schema file (either db/schema.rb or db/structure.sql, depending on `ENV['SCHEMA_FORMAT']` or `config.active_record.schema_format`)"
-    task dump: :load_config do
+    task :dump do
       ActiveRecord::Tasks::DatabaseTasks.dump_all
 
       db_namespace["schema:dump"].reenable
     end
 
     desc "Load a database schema file (either db/schema.rb or db/structure.sql, depending on `ENV['SCHEMA_FORMAT']` or `config.active_record.schema_format`) into the database"
-    task load: [:load_config, :check_protected_environments] do
+    task load: [:check_protected_environments] do
       ActiveRecord::Tasks::DatabaseTasks.load_schema_current(nil, ENV["SCHEMA"])
     end
 
     namespace :dump do
       ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
         desc "Create a database schema file (either db/schema.rb or db/structure.sql, depending on configuration) for #{name} database"
-        task name => :load_config do
+        task name do
           ActiveRecord::Tasks::DatabaseTasks.with_temporary_pool_for_each(name: name) do |pool|
             db_config = pool.db_config
             ActiveRecord::Tasks::DatabaseTasks.dump_schema(db_config, ENV["SCHEMA_FORMAT"] || db_config.schema_format)
@@ -485,7 +475,7 @@ db_namespace = namespace :db do
 
     namespace :cache do
       desc "Create a db/schema_cache.yml file."
-      task dump: :load_config do
+      task :dump do
         ActiveRecord::Tasks::DatabaseTasks.with_temporary_pool_for_each do |pool|
           db_config = pool.db_config
           filename = ActiveRecord::Tasks::DatabaseTasks.cache_dump_filename(db_config)
@@ -495,7 +485,7 @@ db_namespace = namespace :db do
       end
 
       desc "Clear a db/schema_cache.yml file."
-      task clear: :load_config do
+      task :clear do
         ActiveRecord::Base.configurations.configs_for(env_name: ActiveRecord::Tasks::DatabaseTasks.env).each do |db_config|
           filename = ActiveRecord::Tasks::DatabaseTasks.cache_dump_filename(db_config)
           ActiveRecord::Tasks::DatabaseTasks.clear_schema_cache(
@@ -531,14 +521,14 @@ db_namespace = namespace :db do
     end
 
     # desc "Empty the test database"
-    task purge: %w(load_config check_protected_environments) do
+    task purge: %w(check_protected_environments) do
       ActiveRecord::Base.configurations.configs_for(env_name: "test").each do |db_config|
         ActiveRecord::Tasks::DatabaseTasks.purge(db_config)
       end
     end
 
     # desc 'Load the test schema'
-    task prepare: :load_config do
+    task :prepare do
       unless ActiveRecord::Base.configurations.blank?
         db_namespace["test:load_schema"].invoke
       end
@@ -558,7 +548,7 @@ db_namespace = namespace :db do
 
       # desc "Empty the #{name} test database"
       namespace :purge do
-        task name => %w(load_config check_protected_environments) do
+        task name => %w( check_protected_environments) do
           ActiveRecord::Tasks::DatabaseTasks.with_temporary_pool_for_each(env: "test", name: name) do |pool|
             db_config = pool.db_config
             ActiveRecord::Tasks::DatabaseTasks.purge(db_config)
@@ -568,7 +558,7 @@ db_namespace = namespace :db do
 
       # desc 'Load the #{name} database test schema'
       namespace :prepare do
-        task name => :load_config do
+        task name do
           db_namespace["test:load_schema:#{name}"].invoke
         end
       end
@@ -579,7 +569,7 @@ end
 namespace :railties do
   namespace :install do
     # desc "Copy missing migrations from Railties (e.g. engines). You can specify Railties to use with FROM=railtie1,railtie2 and database to copy to with DATABASE=database."
-    task migrations: :'db:load_config' do
+    task :migrations do
       to_load = ENV["FROM"].blank? ? :all : ENV["FROM"].split(",").map(&:strip)
       railties = {}
       Rails.application.migration_railties.each do |railtie|

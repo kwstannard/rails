@@ -296,7 +296,7 @@ module ActiveRecord
       end
 
       def migrations_paths # :nodoc:
-        db_config.migrations_paths || Migrator.migrations_paths
+        db_config.migrations_paths
       end
 
       def schema_migration # :nodoc:

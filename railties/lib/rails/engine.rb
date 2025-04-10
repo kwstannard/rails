@@ -368,10 +368,14 @@ module Rails
           end
 
           if base.config.database_configuration
+            base.module_parent.singleton_class.define_method(:table_name_prefix) {""}
+
             base.config.after_initialize do
-              base.config.root_record = base.module_parent::ApplicationRecord
+              base.config.root_record ||= base.module_parent::ApplicationRecord
               base.config.root_record.configurations = base.config.database_configuration
+              base.config.root_record.establish_connection
             rescue NameError
+              raise ActiveRecord::ConfigurationError, "In #{base}: Engines with a configuration must have an ApplicationRecord"
             end
           end
         end
@@ -680,6 +684,18 @@ module Rails
               Rake::Task["app:railties:install:migrations"].invoke
             end
           end
+        end
+      end
+    end
+
+    rake_tasks do
+      next unless config.database_configuration
+
+      database_tasks = ActiveRecord::Tasks::DatabaseTasks.for(self)
+
+      namespace :db do
+        task :prepare do
+          database_tasks.prepare_all
         end
       end
     end

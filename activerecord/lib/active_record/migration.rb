@@ -673,8 +673,7 @@ module ActiveRecord
 
       private
         def build_watcher(&block)
-          current_environment = ActiveRecord::ConnectionHandling::DEFAULT_ENV.call
-          all_configs = ActiveRecord::Base.configurations.configs_for(env_name: current_environment)
+          all_configs = configurations.configs_for(env_name: env)
           paths = all_configs.flat_map { |config| config.migrations_paths || Migrator.migrations_paths }.uniq
           @file_watcher.new([], paths.index_with(["rb"]), &block)
         end
@@ -682,7 +681,29 @@ module ActiveRecord
 
     class << self
       attr_accessor :delegate # :nodoc:
-      attr_accessor :disable_ddl_transaction # :nodoc:
+      attr_accessor :disable_ddl_transaction, :root, :migration_paths, # :nodoc:
+
+      def for(engine)
+        if engine.config.database_configuration.present?
+          Module.new.tap do |mod|
+            engine.class.const_set("Migration", mod)
+            mod.extend self
+            mod.extend ConnectionHandling
+
+            mod.configurations = engine.config.database_configuration
+            mod.db_dir = engine.paths['db'].first
+            mod.migrations_paths = engine.paths['db/migrate'].to_a
+            mod.root = engine.root
+            mod.fixtures_path = File.join(mod.root, "test", "fixtures")
+            mod.seed_loader = engine
+
+            # mod.establish_connection
+          end
+        else
+          OpenStruct.new
+        end
+      end
+
 
       def nearest_delegate # :nodoc:
         delegate || superclass.nearest_delegate
@@ -752,14 +773,14 @@ module ActiveRecord
         end
 
         def db_configs_in_current_env
-          ActiveRecord::Base.configurations.configs_for(env_name: env)
+          configurations.configs_for(env_name: env)
         end
 
         def pending_migrations
           pending_migrations = []
 
-          ActiveRecord::Base.configurations.configs_for(env_name: env).each do |db_config|
-            ActiveRecord::PendingMigrationConnection.with_temporary_pool(db_config) do |pool|
+          configurations.configs_for(env_name: env).each do |db_config|
+            with_temporary_pool(db_config) do |pool|
               if pending = pool.migration_context.open.pending_migrations
                 pending_migrations << pending
               end
@@ -769,16 +790,12 @@ module ActiveRecord
           pending_migrations.flatten
         end
 
-        def env
-          ActiveRecord::ConnectionHandling::DEFAULT_ENV.call
-        end
-
         def load_schema!
           # Roundtrip to Rake to allow plugins to hook into database initialization.
-          root = defined?(ENGINE_ROOT) ? ENGINE_ROOT : Rails.root
+          root = defined?(ENGINE_ROOT) ? ENGINE_ROOT : root
 
           FileUtils.cd(root) do
-            Base.connection_handler.clear_all_connections!(:all)
+            connection_handler.clear_all_connections!(:all)
             system("bin/rails db:test:prepare")
           end
         end

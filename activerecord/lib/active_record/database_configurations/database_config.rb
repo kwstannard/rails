@@ -6,7 +6,7 @@ module ActiveRecord
     # UrlConfig respectively. It will never return a +DatabaseConfig+ object,
     # as this is the parent class for the types of database configuration objects.
     class DatabaseConfig # :nodoc:
-      attr_reader :env_name, :name
+      attr_reader :env_name, :name, :file_prefix
 
       def initialize(env_name, name)
         @env_name = env_name

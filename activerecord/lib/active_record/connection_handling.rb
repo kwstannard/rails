@@ -10,14 +10,21 @@ module ActiveRecord
              default_role
              ], to: :connection_handler)
 
+    attr_accessor :default_connection_handler, :default_shard, :shard_selector,
+      :primary_flag
     def self.extended(base)
-      base.class_attribute :default_connection_handler, instance_writer: false
       base.default_connection_handler = ConnectionAdapters::ConnectionHandler.new
-
-      base.class_attribute :default_shard, instance_writer: false, default: :default
-      base.class_attribute :shard_selector, instance_accessor: false, default: nil
+      base.default_shard = :default
 
       base.include InstanceMethods
+    end
+
+    def inherited(subclass)
+      subclass.default_connection_handler = default_connection_handler
+      subclass.default_shard = default_shard
+      subclass.configurations = configurations
+      subclass.connection_specification_name = name
+      subclass.primary_flag = false
     end
 
     # Establishes the connection to the database. Accepts a hash as input where
@@ -61,10 +68,43 @@ module ActiveRecord
     #
     # The exceptions AdapterNotSpecified, AdapterNotFound, and +ArgumentError+
     # may be returned on an error.
-    def establish_connection(config_or_env = nil)
+    def establish_connection(config_or_env = nil, clobber: false)
       config_or_env ||= DEFAULT_ENV.call.to_sym
       db_config = resolve_config_for_connection(config_or_env)
-      connection_handler.establish_connection(db_config, connection_name: self, role: current_role, shard: current_shard)
+      connection_handler.establish_connection(db_config, connection_name: self, role: current_role, shard: current_shard, clobber: clobber)
+    end
+
+    ##
+    # Contains the database configuration - as is typically stored in config/database.yml -
+    # as an ActiveRecord::DatabaseConfigurations object.
+    #
+    # For example, the following database.yml...
+    #
+    #   development:
+    #     adapter: sqlite3
+    #     database: storage/development.sqlite3
+    #
+    #   production:
+    #     adapter: sqlite3
+    #     database: storage/production.sqlite3
+    #
+    # ...would result in ActiveRecord::Base.configurations to look like this:
+    #
+    #   #<ActiveRecord::DatabaseConfigurations:0x00007fd1acbdf800 @configurations=[
+    #     #<ActiveRecord::DatabaseConfigurations::HashConfig:0x00007fd1acbded10 @env_name="development",
+    #       @name="primary", @config={adapter: "sqlite3", database: "storage/development.sqlite3"}>,
+    #     #<ActiveRecord::DatabaseConfigurations::HashConfig:0x00007fd1acbdea90 @env_name="production",
+    #       @name="primary", @config={adapter: "sqlite3", database: "storage/production.sqlite3"}>
+    #   ]>
+    def configurations=(config)
+      if config
+        self.primary_flag = true
+        self.connection_specification_name = name
+        @configurations = ActiveRecord::DatabaseConfigurations.new(config)
+      end
+    end
+    def configurations
+      @configurations
     end
 
     # Connects a model to the databases specified. The +database+ keyword
@@ -404,18 +444,11 @@ module ActiveRecord
       klass
     end
 
-    attr_writer :connection_specification_name
+    attr_accessor :connection_specification_name
 
-    # Returns the connection specification name from the current class or its parent.
-    def connection_specification_name
-      if @connection_specification_name.nil?
-        return self == Base ? name : superclass.connection_specification_name
-      end
-      @connection_specification_name
-    end
 
     def primary_class? # :nodoc:
-      self == Base || application_record_class?
+      primary_flag
     end
 
     # Returns the db_config object from the associated connection:
@@ -497,9 +530,6 @@ module ActiveRecord
     private
       def resolve_config_for_connection(config_or_env)
         raise "Anonymous class is not allowed." unless name
-
-        connection_name = primary_class? ? Base.name : name
-        self.connection_specification_name = connection_name
 
         configurations.resolve(config_or_env)
       end

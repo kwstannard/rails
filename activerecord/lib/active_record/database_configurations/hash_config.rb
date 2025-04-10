@@ -37,6 +37,11 @@ module ActiveRecord
       #
       def initialize(env_name, name, configuration_hash)
         super(env_name, name)
+        if %w(default primary).include?(name)
+          @file_prefix = ""
+        else
+          @file_prefix = "#{name}_"
+        end
         @configuration_hash = configuration_hash.symbolize_keys.freeze
       end
 
@@ -115,19 +120,11 @@ module ActiveRecord
       end
 
       def default_schema_cache_path(db_dir = "db")
-        if primary?
-          File.join(db_dir, "schema_cache.yml")
-        else
-          File.join(db_dir, "#{name}_schema_cache.yml")
-        end
+        File.join(db_dir,"#{file_prefix}schema_cache.yml")
       end
 
       def lazy_schema_cache_path
         schema_cache_path || default_schema_cache_path
-      end
-
-      def primary? # :nodoc:
-        Base.configurations.primary?(name)
       end
 
       # Determines whether the db:prepare task should seed the database from db/seeds.rb.
@@ -135,7 +132,7 @@ module ActiveRecord
       # If the `seeds` key is present in the config, `seeds?` will return its value.  Otherwise, it
       # will return `true` for the primary database and `false` for all other configs.
       def seeds?
-        configuration_hash.fetch(:seeds, primary?)
+        configuration_hash.fetch(:seeds, !!file_prefix)
       end
 
       # Determines whether to dump the schema/structure files and the filename that
@@ -151,10 +148,8 @@ module ActiveRecord
           if config = configuration_hash[:schema_dump]
             config
           end
-        elsif primary?
-          schema_file_type(format)
         else
-          "#{name}_#{schema_file_type(format)}"
+          "#{file_prefix}#{schema_file_type(format)}"
         end
       end
 
