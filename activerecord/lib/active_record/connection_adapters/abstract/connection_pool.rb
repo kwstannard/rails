@@ -292,7 +292,7 @@ module ActiveRecord
       end
 
       def migration_context # :nodoc:
-        MigrationContext.new(migrations_paths, schema_migration, internal_metadata)
+        MigrationContext.new(self, migrations_paths, schema_migration, internal_metadata)
       end
 
       def migrations_paths # :nodoc:
@@ -705,6 +705,13 @@ module ActiveRecord
       rescue ConnectionNotEstablished => ex
         raise ex.set_pool(self)
       end
+
+      delegate(*%i[
+               get_advisory_lock
+               advisory_locks_enabled?
+               release_advisory_lock
+               current_database
+               ], to: :connection_lease)
 
       private
         def connection_lease

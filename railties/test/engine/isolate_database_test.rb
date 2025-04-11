@@ -192,7 +192,7 @@ module Rails
             RUBY
 
             plugin.write "db/migrate/1234_posts.rb", <<~RUBY
-              class 1234Posts < ActiveRecord::Migration
+              class Posts < ActiveRecord::Migration[8.1].for(#{const}::Engine.instance)
                 def change
                   create_table :posts
                 end

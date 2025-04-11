@@ -4,6 +4,8 @@ require "active_support/core_ext/array/access"
 require "active_support/core_ext/enumerable"
 require "active_support/core_ext/module/attribute_accessors"
 require "active_support/actionable_error"
+require "active_record/migrator"
+require "active_record/migration_context"
 require "active_record/migration/pending_migration_connection"
 
 module ActiveRecord
@@ -148,10 +150,10 @@ module ActiveRecord
     include ActiveSupport::ActionableError
 
     action "Run pending migrations" do
-      ActiveRecord::Tasks::DatabaseTasks.migrate_all
+      migrate_all
 
       if ActiveRecord.dump_schema_after_migration
-        ActiveRecord::Tasks::DatabaseTasks.dump_all
+        dump_all
       end
     end
 
@@ -176,10 +178,6 @@ module ActiveRecord
         end
 
         message
-      end
-
-      def connection_pool
-        ActiveRecord::Tasks::DatabaseTasks.migration_connection_pool
       end
   end
 
@@ -681,23 +679,18 @@ module ActiveRecord
 
     class << self
       attr_accessor :delegate # :nodoc:
-      attr_accessor :disable_ddl_transaction, :root, :migration_paths, # :nodoc:
+      attr_accessor :disable_ddl_transaction, :root, :migration_paths # :nodoc:
 
       def for(engine)
         if engine.config.database_configuration.present?
-          Module.new.tap do |mod|
+          Class.new(self).tap do |mod|
             engine.class.const_set("Migration", mod)
-            mod.extend self
             mod.extend ConnectionHandling
 
             mod.configurations = engine.config.database_configuration
-            mod.db_dir = engine.paths['db'].first
-            mod.migrations_paths = engine.paths['db/migrate'].to_a
             mod.root = engine.root
-            mod.fixtures_path = File.join(mod.root, "test", "fixtures")
-            mod.seed_loader = engine
 
-            # mod.establish_connection
+            mod.establish_connection
           end
         else
           OpenStruct.new
@@ -714,7 +707,7 @@ module ActiveRecord
       def check_all_pending!
         pending_migrations = []
 
-        ActiveRecord::Tasks::DatabaseTasks.with_temporary_pool_for_each(env: env) do |pool|
+        with_temporary_pool_for_each(env: env) do |pool|
           if pending = pool.migration_context.open.pending_migrations
             pending_migrations << pending
           end
@@ -766,9 +759,44 @@ module ActiveRecord
       end
 
       private
+
         def any_schema_needs_update?
           !db_configs_in_current_env.all? do |db_config|
             Tasks::DatabaseTasks.schema_up_to_date?(db_config)
+          end
+        end
+
+        def schema_up_to_date?(configuration, _ = nil, file = nil)
+          db_config = resolve_configuration(configuration)
+
+          file ||= schema_dump_path(db_config)
+
+          return true unless file && File.exist?(file)
+
+          with_temporary_pool(db_config) do |pool|
+            internal_metadata = pool.internal_metadata
+            return false unless internal_metadata.enabled?
+            return false unless internal_metadata.table_exists?
+
+            internal_metadata[:schema_sha1] == schema_sha1(file)
+          end
+        end
+
+        def reconstruct_from_schema(db_config, file = nil) # :nodoc:
+          file ||= schema_dump_path(db_config, db_config.schema_format)
+
+          check_schema_file(file) if file
+
+          with_temporary_pool(db_config, clobber: true) do
+            if schema_up_to_date?(db_config, nil, file)
+              truncate_tables(db_config) unless ENV["SKIP_TEST_DATABASE_TRUNCATE"]
+            else
+              purge(db_config)
+              load_schema(db_config, db_config.schema_format, file)
+            end
+          rescue ActiveRecord::NoDatabaseError
+            create(db_config)
+            load_schema(db_config, db_config.schema_format, file)
           end
         end
 
@@ -823,7 +851,6 @@ module ActiveRecord
       @name       = name
       @version    = version
       @connection = nil
-      @pool       = nil
     end
 
     def execution_strategy
@@ -992,7 +1019,7 @@ module ActiveRecord
       end
 
       time_elapsed = nil
-      ActiveRecord::Tasks::DatabaseTasks.migration_connection.pool.with_connection do |conn|
+      connection_pool.with_connection do |conn|
         time_elapsed = ActiveSupport::Benchmark.realtime do
           exec_migration(conn, direction)
         end
@@ -1222,426 +1249,6 @@ module ActiveRecord
 
         load(File.expand_path(filename))
         name.constantize.new(name, version)
-      end
-  end
-
-  # = \Migration \Context
-  #
-  # MigrationContext sets the context in which a migration is run.
-  #
-  # A migration context requires the path to the migrations is set
-  # in the +migrations_paths+ parameter. Optionally a +schema_migration+
-  # class can be provided. Multiple database applications will instantiate
-  # a +SchemaMigration+ object per database. From the Rake tasks, \Rails will
-  # handle this for you.
-  class MigrationContext
-    attr_reader :migrations_paths, :schema_migration, :internal_metadata
-
-    def initialize(migrations_paths, schema_migration = nil, internal_metadata = nil)
-      @migrations_paths = migrations_paths
-      @schema_migration = schema_migration || SchemaMigration.new(connection_pool)
-      @internal_metadata = internal_metadata || InternalMetadata.new(connection_pool)
-    end
-
-    # Runs the migrations in the +migrations_path+.
-    #
-    # If +target_version+ is +nil+, +migrate+ will run +up+.
-    #
-    # If the +current_version+ and +target_version+ are both
-    # 0 then an empty array will be returned and no migrations
-    # will be run.
-    #
-    # If the +current_version+ in the schema is greater than
-    # the +target_version+, then +down+ will be run.
-    #
-    # If none of the conditions are met, +up+ will be run with
-    # the +target_version+.
-    def migrate(target_version = nil, &block)
-      case
-      when target_version.nil?
-        up(target_version, &block)
-      when current_version == 0 && target_version == 0
-        []
-      when current_version > target_version
-        down(target_version, &block)
-      else
-        up(target_version, &block)
-      end
-    end
-
-    def rollback(steps = 1) # :nodoc:
-      move(:down, steps)
-    end
-
-    def forward(steps = 1) # :nodoc:
-      move(:up, steps)
-    end
-
-    def up(target_version = nil, &block) # :nodoc:
-      selected_migrations = if block_given?
-        migrations.select(&block)
-      else
-        migrations
-      end
-
-      Migrator.new(:up, selected_migrations, schema_migration, internal_metadata, target_version).migrate
-    end
-
-    def down(target_version = nil, &block) # :nodoc:
-      selected_migrations = if block_given?
-        migrations.select(&block)
-      else
-        migrations
-      end
-
-      Migrator.new(:down, selected_migrations, schema_migration, internal_metadata, target_version).migrate
-    end
-
-    def run(direction, target_version) # :nodoc:
-      Migrator.new(direction, migrations, schema_migration, internal_metadata, target_version).run
-    end
-
-    def open # :nodoc:
-      Migrator.new(:up, migrations, schema_migration, internal_metadata)
-    end
-
-    def get_all_versions # :nodoc:
-      if schema_migration.table_exists?
-        schema_migration.integer_versions
-      else
-        []
-      end
-    end
-
-    def current_version # :nodoc:
-      get_all_versions.max || 0
-    rescue ActiveRecord::NoDatabaseError
-    end
-
-    def needs_migration? # :nodoc:
-      pending_migration_versions.size > 0
-    end
-
-    def pending_migration_versions # :nodoc:
-      migrations.collect(&:version) - get_all_versions
-    end
-
-    def migrations # :nodoc:
-      migrations = migration_files.map do |file|
-        version, name, scope = parse_migration_filename(file)
-        raise IllegalMigrationNameError.new(file) unless version
-        if validate_timestamp? && !valid_migration_timestamp?(version)
-          raise InvalidMigrationTimestampError.new(version, name)
-        end
-        version = version.to_i
-        name = name.camelize
-
-        MigrationProxy.new(name, version, file, scope)
-      end
-
-      migrations.sort_by(&:version)
-    end
-
-    def migrations_status # :nodoc:
-      db_list = schema_migration.normalized_versions
-
-      file_list = migration_files.filter_map do |file|
-        version, name, scope = parse_migration_filename(file)
-        raise IllegalMigrationNameError.new(file) unless version
-        if validate_timestamp? && !valid_migration_timestamp?(version)
-          raise InvalidMigrationTimestampError.new(version, name)
-        end
-        version = schema_migration.normalize_migration_number(version)
-        status = db_list.delete(version) ? "up" : "down"
-        [status, version, (name + scope).humanize]
-      end
-
-      db_list.map! do |version|
-        ["up", version, "********** NO FILE **********"]
-      end
-
-      (db_list + file_list).sort_by { |_, version, _| version.to_i }
-    end
-
-    def current_environment # :nodoc:
-      ActiveRecord::ConnectionHandling::DEFAULT_ENV.call
-    end
-
-    def protected_environment? # :nodoc:
-      ActiveRecord::Base.protected_environments.include?(last_stored_environment) if last_stored_environment
-    end
-
-    def last_stored_environment # :nodoc:
-      internal_metadata = connection_pool.internal_metadata
-      return nil unless internal_metadata.enabled?
-      return nil if current_version == 0
-      raise NoEnvironmentInSchemaError unless internal_metadata.table_exists?
-
-      environment = internal_metadata[:environment]
-      raise NoEnvironmentInSchemaError unless environment
-      environment
-    end
-
-    private
-      def connection
-        ActiveRecord::Tasks::DatabaseTasks.migration_connection
-      end
-
-      def connection_pool
-        ActiveRecord::Tasks::DatabaseTasks.migration_connection_pool
-      end
-
-      def migration_files
-        paths = Array(migrations_paths)
-        Dir[*paths.flat_map { |path| "#{path}/**/[0-9]*_*.rb" }]
-      end
-
-      def parse_migration_filename(filename)
-        File.basename(filename).scan(Migration::MigrationFilenameRegexp).first
-      end
-
-      def validate_timestamp?
-        ActiveRecord.timestamped_migrations && ActiveRecord.validate_migration_timestamps
-      end
-
-      def valid_migration_timestamp?(version)
-        version.to_i < (Time.now.utc + 1.day).strftime("%Y%m%d%H%M%S").to_i
-      end
-
-      def move(direction, steps)
-        migrator = Migrator.new(direction, migrations, schema_migration, internal_metadata)
-
-        if current_version != 0 && !migrator.current_migration
-          raise UnknownMigrationVersionError.new(current_version)
-        end
-
-        start_index =
-          if current_version == 0
-            0
-          else
-            migrator.migrations.index(migrator.current_migration)
-          end
-
-        finish = migrator.migrations[start_index + steps]
-        version = finish ? finish.version : 0
-        public_send(direction, version)
-      end
-  end
-
-  class Migrator # :nodoc:
-    class << self
-      attr_accessor :migrations_paths
-
-      # For cases where a table doesn't exist like loading from schema cache
-      def current_version
-        connection_pool = ActiveRecord::Tasks::DatabaseTasks.migration_connection_pool
-        schema_migration = SchemaMigration.new(connection_pool)
-        internal_metadata = InternalMetadata.new(connection_pool)
-
-        MigrationContext.new(migrations_paths, schema_migration, internal_metadata).current_version
-      end
-    end
-
-    self.migrations_paths = ["db/migrate"]
-
-    def initialize(direction, migrations, schema_migration, internal_metadata, target_version = nil)
-      @direction         = direction
-      @target_version    = target_version
-      @migrated_versions = nil
-      @migrations        = migrations
-      @schema_migration  = schema_migration
-      @internal_metadata = internal_metadata
-
-      validate(@migrations)
-
-      @schema_migration.create_table
-      @internal_metadata.create_table
-    end
-
-    def current_version
-      migrated.max || 0
-    end
-
-    def current_migration
-      migrations.detect { |m| m.version == current_version }
-    end
-    alias :current :current_migration
-
-    def run
-      if use_advisory_lock?
-        with_advisory_lock { run_without_lock }
-      else
-        run_without_lock
-      end
-    end
-
-    def migrate
-      if use_advisory_lock?
-        with_advisory_lock { migrate_without_lock }
-      else
-        migrate_without_lock
-      end
-    end
-
-    def runnable
-      runnable = migrations[start..finish]
-      if up?
-        runnable.reject { |m| ran?(m) }
-      else
-        # skip the last migration if we're headed down, but not ALL the way down
-        runnable.pop if target
-        runnable.find_all { |m| ran?(m) }
-      end
-    end
-
-    def migrations
-      down? ? @migrations.reverse : @migrations.sort_by(&:version)
-    end
-
-    def pending_migrations
-      already_migrated = migrated
-      migrations.reject { |m| already_migrated.include?(m.version) }
-    end
-
-    def migrated
-      @migrated_versions || load_migrated
-    end
-
-    def load_migrated
-      @migrated_versions = Set.new(@schema_migration.integer_versions)
-    end
-
-    private
-      def connection
-        ActiveRecord::Tasks::DatabaseTasks.migration_connection
-      end
-
-      # Used for running a specific migration.
-      def run_without_lock
-        migration = migrations.detect { |m| m.version == @target_version }
-        raise UnknownMigrationVersionError.new(@target_version) if migration.nil?
-
-        record_environment
-        execute_migration_in_transaction(migration)
-      end
-
-      # Used for running multiple migrations up to or down to a certain value.
-      def migrate_without_lock
-        if invalid_target?
-          raise UnknownMigrationVersionError.new(@target_version)
-        end
-
-        record_environment
-        runnable.each(&method(:execute_migration_in_transaction))
-      end
-
-      # Stores the current environment in the database.
-      def record_environment
-        return if down?
-
-        @internal_metadata[:environment] = connection.pool.db_config.env_name
-      end
-
-      def ran?(migration)
-        migrated.include?(migration.version.to_i)
-      end
-
-      # Return true if a valid version is not provided.
-      def invalid_target?
-        @target_version && @target_version != 0 && !target
-      end
-
-      def execute_migration_in_transaction(migration)
-        return if down? && !migrated.include?(migration.version.to_i)
-        return if up?   &&  migrated.include?(migration.version.to_i)
-
-        Base.logger.info "Migrating to #{migration.name} (#{migration.version})" if Base.logger
-
-        ddl_transaction(migration) do
-          migration.migrate(@direction)
-          record_version_state_after_migrating(migration.version)
-        end
-      rescue => e
-        msg = +"An error has occurred, "
-        msg << "this and " if use_transaction?(migration)
-        msg << "all later migrations canceled:\n\n#{e}"
-        raise StandardError, msg, e.backtrace
-      end
-
-      def target
-        migrations.detect { |m| m.version == @target_version }
-      end
-
-      def finish
-        migrations.index(target) || migrations.size - 1
-      end
-
-      def start
-        up? ? 0 : (migrations.index(current) || 0)
-      end
-
-      def validate(migrations)
-        name, = migrations.group_by(&:name).find { |_, v| v.length > 1 }
-        raise DuplicateMigrationNameError.new(name) if name
-
-        version, = migrations.group_by(&:version).find { |_, v| v.length > 1 }
-        raise DuplicateMigrationVersionError.new(version) if version
-      end
-
-      def record_version_state_after_migrating(version)
-        if down?
-          migrated.delete(version)
-          @schema_migration.delete_version(version.to_s)
-        else
-          migrated << version
-          @schema_migration.create_version(version.to_s)
-        end
-      end
-
-      def up?
-        @direction == :up
-      end
-
-      def down?
-        @direction == :down
-      end
-
-      # Wrap the migration in a transaction only if supported by the adapter.
-      def ddl_transaction(migration, &block)
-        if use_transaction?(migration)
-          connection.transaction(&block)
-        else
-          yield
-        end
-      end
-
-      def use_transaction?(migration)
-        !migration.disable_ddl_transaction && connection.supports_ddl_transactions?
-      end
-
-      def use_advisory_lock?
-        connection.advisory_locks_enabled?
-      end
-
-      def with_advisory_lock
-        lock_id = generate_migrator_advisory_lock_id
-
-        got_lock = connection.get_advisory_lock(lock_id)
-        raise ConcurrentMigrationError unless got_lock
-        load_migrated # reload schema_migrations to be sure it wasn't changed by another process before we got the lock
-        yield
-      ensure
-        if got_lock && !connection.release_advisory_lock(lock_id)
-          raise ConcurrentMigrationError.new(
-            ConcurrentMigrationError::RELEASE_LOCK_FAILED_MESSAGE
-          )
-        end
-      end
-
-      MIGRATOR_SALT = 2053462845
-      def generate_migrator_advisory_lock_id
-        db_name_hash = Zlib.crc32(connection.current_database)
-        MIGRATOR_SALT * db_name_hash
       end
   end
 end

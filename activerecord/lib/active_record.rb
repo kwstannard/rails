@@ -58,7 +58,8 @@ module ActiveRecord
   autoload :LogSubscriber
   autoload :Marshalling
   autoload :Migration
-  autoload :Migrator, "active_record/migration"
+  autoload :MigrationContext
+  autoload :Migrator
   autoload :ModelSchema
   autoload :NestedAttributes
   autoload :NoTouching

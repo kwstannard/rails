@@ -118,7 +118,7 @@ module ActiveRecord
       end
 
       def create_all
-        db_config = migration_connection.pool.db_config
+        db_config = connection_pool.db_config
 
         each_local_configuration { |db_config| create(db_config) }
 
@@ -260,9 +260,9 @@ module ActiveRecord
 
         check_target_version
 
-        initialize_database(migration_connection_pool.db_config) unless skip_initialize
+        initialize_database(connection_pool.db_config) unless skip_initialize
 
-        migration_connection_pool.migration_context.migrate(target_version) do |migration|
+        connection_pool.migration_context.migrate(target_version) do |migration|
           if version.blank?
             scope.blank? || scope == migration.scope
           else
@@ -272,7 +272,7 @@ module ActiveRecord
           Migration.write("No migrations ran. (using #{scope} scope)") if scope.present? && migrations_ran.empty?
         end
 
-        migration_connection_pool.schema_cache.clear!
+        connection_pool.schema_cache.clear!
       ensure
         Migration.verbose = verbose_was
       end
@@ -295,15 +295,15 @@ module ActiveRecord
       end
 
       def migrate_status
-        unless migration_connection_pool.schema_migration.table_exists?
+        unless connection_pool.schema_migration.table_exists?
           Kernel.abort "Schema migrations table does not exist yet."
         end
 
         # output
-        puts "\ndatabase: #{migration_connection_pool.db_config.database}\n\n"
+        puts "\ndatabase: #{connection_pool.db_config.database}\n\n"
         puts "#{'Status'.center(8)}  #{'Migration ID'.ljust(14)}  Migration Name"
         puts "-" * 50
-        migration_connection_pool.migration_context.migrations_status.each do |status, version, name|
+        connection_pool.migration_context.migrations_status.each do |status, version, name|
           puts "#{status.center(8)}  #{version.ljust(14)}  #{name}"
         end
         puts
@@ -385,43 +385,9 @@ module ActiveRecord
           raise ArgumentError, "unknown format #{format.inspect}"
         end
 
-        migration_connection_pool.internal_metadata.create_table_and_set_flags(db_config.env_name, schema_sha1(file))
+        connection_pool.internal_metadata.create_table_and_set_flags(db_config.env_name, schema_sha1(file))
       ensure
         Migration.verbose = verbose_was
-      end
-
-      def schema_up_to_date?(configuration, _ = nil, file = nil)
-        db_config = resolve_configuration(configuration)
-
-        file ||= schema_dump_path(db_config)
-
-        return true unless file && File.exist?(file)
-
-        with_temporary_pool(db_config) do |pool|
-          internal_metadata = pool.internal_metadata
-          return false unless internal_metadata.enabled?
-          return false unless internal_metadata.table_exists?
-
-          internal_metadata[:schema_sha1] == schema_sha1(file)
-        end
-      end
-
-      def reconstruct_from_schema(db_config, file = nil) # :nodoc:
-        file ||= schema_dump_path(db_config, db_config.schema_format)
-
-        check_schema_file(file) if file
-
-        with_temporary_pool(db_config, clobber: true) do
-          if schema_up_to_date?(db_config, nil, file)
-            truncate_tables(db_config) unless ENV["SKIP_TEST_DATABASE_TRUNCATE"]
-          else
-            purge(db_config)
-            load_schema(db_config, db_config.schema_format, file)
-          end
-        rescue ActiveRecord::NoDatabaseError
-          create(db_config)
-          load_schema(db_config, db_config.schema_format, file)
-        end
       end
 
       def dump_all
@@ -442,13 +408,13 @@ module ActiveRecord
         case format.to_sym
         when :ruby
           File.open(filename, "w:utf-8") do |file|
-            ActiveRecord::SchemaDumper.dump(migration_connection_pool, file)
+            ActiveRecord::SchemaDumper.dump(connection_pool, file)
           end
         when :sql
           structure_dump(db_config, filename)
-          if migration_connection_pool.schema_migration.table_exists?
+          if connection_pool.schema_migration.table_exists?
             File.open(filename, "a") do |f|
-              f.puts migration_connection.dump_schema_versions
+              f.puts connection.dump_schema_versions
               f.print "\n"
             end
           end
@@ -523,35 +489,7 @@ module ActiveRecord
         end
       end
 
-      def with_temporary_connection(db_config, clobber: false, &block) # :nodoc:
-        with_temporary_pool(db_config, clobber: clobber) do |pool|
-          pool.with_connection(&block)
-        end
-      end
-
-      def migration_connection # :nodoc:
-        lease_connection
-      end
-
-      def migration_connection_pool # :nodoc:
-        connection_pool
-      end
-
       private
-        def with_temporary_pool(db_config, clobber: false)
-          original_db_config = connection_db_config
-          pool = establish_connection(db_config, clobber: clobber)
-
-          yield pool
-        ensure
-          if original_db_config
-            establish_connection(original_db_config, clobber: clobber)
-          end
-        end
-
-        def configs_for(**options)
-          configurations.configs_for(**options)
-        end
 
         def resolve_configuration(configuration)
           configurations.resolve(configuration)
@@ -653,7 +591,7 @@ module ActiveRecord
         def initialize_database(db_config)
           with_temporary_pool(db_config) do
             begin
-              database_already_initialized = migration_connection_pool.schema_migration.table_exists?
+              database_already_initialized = connection_pool.schema_migration.table_exists?
             rescue ActiveRecord::NoDatabaseError
               create(db_config)
               retry

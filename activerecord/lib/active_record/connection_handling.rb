@@ -470,6 +470,12 @@ module ActiveRecord
       connection_handler.retrieve_connection_pool(connection_specification_name, role: current_role, shard: current_shard, strict: true)
     end
 
+    def with_temporary_connection(db_config, clobber: false, &block) # :nodoc:
+      with_temporary_pool(db_config, clobber: clobber) do |pool|
+        pool.with_connection(&block)
+      end
+    end
+
     def retrieve_connection
       connection_handler.retrieve_connection(connection_specification_name, role: current_role, shard: current_shard)
     end
@@ -478,6 +484,17 @@ module ActiveRecord
     # Returns +true+ if Active Record is connected.
     def connected?
       connection_handler.connected?(connection_specification_name, role: current_role, shard: current_shard)
+    end
+
+    def with_temporary_pool(db_config, clobber: false)
+      original_db_config = connection_db_config
+      pool = establish_connection(db_config, clobber: clobber)
+
+      yield pool
+    ensure
+      if original_db_config
+        establish_connection(original_db_config, clobber: clobber)
+      end
     end
 
     def remove_connection
@@ -554,9 +571,16 @@ module ActiveRecord
       end
 
       module InstanceMethods
-        def connection_handler
-          self.class.connection_handler
-        end
+        private
+          delegate(*%i(
+            connection_handler
+            connection_pool
+            connection
+          ), to: :class)
       end
+
+        def configs_for(**options)
+          configurations.configs_for(**options)
+        end
   end
 end
