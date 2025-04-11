@@ -152,27 +152,6 @@ module TestHelpers
       add_to_env_config :production, "config.log_level = :error"
     end
 
-    def build_modular_app(options={})
-      @prev_rails_app_class = Rails.app_class
-      @prev_rails_application = Rails.application
-      Rails.app_class = Rails.application = nil
-
-      @prev_rails_env = ENV["RAILS_ENV"]
-      ENV["RAILS_ENV"] = "development"
-
-      FileUtils.rm_rf(app_path)
-      FileUtils.cp_r(app_template_path + "/bin", app_path)
-      FileUtils.mkdir(app_path + '/config')
-
-      File.write("#{app_path}/config/application.rb", <<~EMPTY)
-      require 'rails/all'
-      class App < Rails::Application
-        config.root = __dir__
-      end
-      App.initialize!
-      EMPTY
-    end
-
     def teardown_app
       ENV["RAILS_ENV"] = @prev_rails_env if @prev_rails_env
       Rails.app_class = @prev_rails_app_class if @prev_rails_app_class
