@@ -39,8 +39,12 @@ module Rails
 
         Rake::Task["db:prepare"].invoke
 
-        assert_equal(Client::Post.count, 0)
-        assert_equal(Admin::Post.count, 0)
+        Client::Post.create!
+        Admin::Post.create!
+        Admin::Post.create!
+
+        assert_equal(Client::Post.count, 1)
+        assert_equal(Admin::Post.count, 2)
       end
 
       private
